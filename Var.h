@@ -59,9 +59,6 @@ public:
     /// indique si on désire activer la rotation automatique du modèle
     static int rotAutoOn;
 
-    /// indique si on désire activer la bump mapping de perlin
-    static int perlinOn;
-
     /// Indique le filtre à utiliser pour le minFilter (utilisé comme index à CCst::mapFilters[])
     static int minFilter;
     /// Indique le filtre à utiliser pour le minFilter (utilisé comme index à CCst::mapFilters[])
@@ -121,8 +118,11 @@ public:
     /// déclaration de la liste d'affichage du modèle
     static GLuint listeAffModele;
 
-    /// la texture de perlin
-    static GLuint perlinTex;
+    /// la texture de la carte
+    static GLuint diffTex;
+
+	/// la texture du masque 
+	static GLuint maskTex;
 
     /// temps
     static double temps;

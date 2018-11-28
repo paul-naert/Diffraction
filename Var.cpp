@@ -20,7 +20,6 @@ int     CVar::axesOn                = true;
 int     CVar::fogOn                 = true;   
 int     CVar::animModeleOn          = false; 
 int     CVar::rotAutoOn             = false;       
-int     CVar::perlinOn              = true;  
 
 int     CVar::minFilter             = 0;
 int     CVar::magFilter             = 0;
@@ -58,4 +57,5 @@ glm::mat4 CVar::projection			= glm::mat4();
 
 GLuint  CVar::listeAffModele;
 
-GLuint  CVar::perlinTex             = 0;
+GLuint  CVar::diffTex             = 0;
+GLuint  CVar::maskTex             = 0;

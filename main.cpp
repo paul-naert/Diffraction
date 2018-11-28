@@ -23,7 +23,7 @@
 #include <gtx/transform.hpp>
 
 #include "Cst.h"
-#include "Gazon.h"
+#include "Laser.h"
 #include "GrilleQuads.h"
 #include "Materiau.h"
 #include "Modele3DOBJ.h"
@@ -32,6 +32,7 @@
 #include "Texture2D.h"
 #include "Var.h"
 #include "textfile.h"
+#include "compute.h"
 
 ///////////////////////////////////////////////
 // LES OBJETS                                //
@@ -40,8 +41,8 @@
 // les programmes de nuanceurs
 static CNuanceurProg progNuanceurCarte("Nuanceurs/carteSommets.glsl", "Nuanceurs/carteFragments.glsl", false);
 static CNuanceurProg progNuanceurSkybox("Nuanceurs/skyBoxSommets.glsl", "Nuanceurs/skyBoxFragments.glsl", false);
-static CNuanceurProg progNuanceurGazon("Nuanceurs/gazonSommets.glsl", "Nuanceurs/gazonFragments.glsl", false);
-
+//static CNuanceurProg progNuanceurGazon("Nuanceurs/gazonSommets.glsl", "Nuanceurs/gazonFragments.glsl", false);
+GLuint computeHandle;
 // les différents matériaux utilisés dans le programme
 static CMateriau front_mat_ambiant_model(0.1f, 0.1f, 0.1f, 1.0f, 0.9f, 0.8f, 1.0f, 1.0f, 0.5f, 0.5f, 0.5f, 1.0f, 0.0f,
                                          0.0f, 0.0f, 1.0f, 100.0f);
@@ -50,7 +51,7 @@ CMateriau nurbs_mat_ambiant_model(0.8, 0.8, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0
 
 // Les objets 3D graphiques (à instancier plus tard parce que les textures demandent le contexte graphique)
 static CGrilleQuads* cartePoly;
-static CGazon*       gazon;
+//static CGazon*       gazon;
 // CGrilleQuads *gazon;
 static CSkybox* skybox;
 
@@ -73,6 +74,20 @@ float vitesseSouris = 0.05f;
 double sourisX = 0;
 double sourisY = 0;
 
+const int resX = 128;
+const int resY = 128;
+float* texDiffColor = new float[resX * resY * 4];
+float* texMaskColor = new float[resX * resY * 4];
+float* mask = new float[resX * resY];
+float waveLen = 1;
+double previous_time = 0;
+CLaser laser0 ;
+//key controls
+bool rotating = false;
+// display mask
+bool maskOn = false;
+
+
 ///////////////////////////////////////////////
 // PROTOTYPES DES FONCTIONS DU MAIN          //
 ///////////////////////////////////////////////
@@ -80,14 +95,18 @@ void initialisation(void);
 void dessinerSkybox(void);
 void dessinerScene(void);
 void dessinerCarte(void);
-void dessinerGazon(void);
+//void dessinerGazon(void);
 void attribuerValeursLumieres(GLuint progNuanceur);
 void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods);
 void mouvementSouris(GLFWwindow* window, double deltaT, glm::vec3& direction, glm::vec3& right, glm::vec3& up);
 void redimensionnement(GLFWwindow* fenetre, int w, int h);
 void rafraichirCamera(GLFWwindow* window, double deltaT);
 void compilerNuanceurs();
-void chargerBruitPerlin();
+void calculDiffraction();
+void laserIntersect(CLaser laser);
+void initDiffraction();
+void updateLaser();
+
 
 // le main
 int main(int argc, char* argv[])
@@ -168,6 +187,10 @@ int main(int argc, char* argv[])
     // compiler et lier les nuanceurs
     compilerNuanceurs();
 
+
+	//gestion du compute shader
+	computeHandle = genComputeProg("Nuanceurs/computeshader.glsl");
+
     // initialisation de variables d'état openGL et création des listes
     initialisation();
 
@@ -210,12 +233,15 @@ int main(int argc, char* argv[])
     glfwTerminate();
 
     // on doit faire le ménage... !
-    delete gazon;
+    //delete gazon;
     delete CVar::lumieres[ENUM_LUM::LumPonctuelle];
     delete CVar::lumieres[ENUM_LUM::LumDirectionnelle];
     delete CVar::lumieres[ENUM_LUM::LumSpot];
     delete cartePoly;
     delete skybox;
+	delete texDiffColor;
+	delete texMaskColor;
+	delete mask;
 
     // le programme n'arrivera jamais jusqu'ici
     return EXIT_SUCCESS;
@@ -245,11 +271,12 @@ void initialisation(void)
 
     // les noms de fichier de la texture de la carte.
     std::vector<const char*> texturesCarte;
-    texturesCarte.push_back("Textures/cartePolyRecto.bmp");
-    texturesCarte.push_back("Textures/cartePolyVerso.bmp");
+    texturesCarte.push_back("Textures/white.bmp");
+    texturesCarte.push_back("Textures/white.bmp");
 
-    // charger la texture de perlin
-    chargerBruitPerlin();
+	initDiffraction();
+
+	calculDiffraction();
 
     cartePoly = new CGrilleQuads(&texturesCarte, 20.f, 12.f, 25, 25, 1.0f, false, true);
     // lier les attributs des nuanceurs
@@ -263,7 +290,7 @@ void initialisation(void)
     // gazon->modifierRepeatTexture(true);
 
     // gazon->modifierEchelle(10.0f);
-    gazon = new CGazon("Textures/gazon.bmp", 1.0f, 1.0f);
+    //gazon = new CGazon("Textures/gazon.bmp", 1.0f, 1.0f);
 
     // fixer la couleur de fond
     glClearColor(0.0, 0.0, 0.5, 1.0);
@@ -277,6 +304,10 @@ void initialisation(void)
 
 void dessinerCarte(void)
 {
+	updateLaser();
+	laserIntersect(laser0);
+	calculDiffraction();
+
     GLenum err = 0;
     progNuanceurCarte.activer();
     // Création d'une matrice-modèle.
@@ -334,10 +365,6 @@ void dessinerCarte(void)
 
     handle = glGetUniformLocation(progNuanceurCarte.getProg(), "animOn");
     glUniform1i(handle, (int)CVar::animModeleOn);
-    err = glGetError();
-
-    handle = glGetUniformLocation(progNuanceurCarte.getProg(), "perlinOn");
-    glUniform1i(handle, (int)CVar::perlinOn);
     err = glGetError();
 
     ////////////////    Fournir les valeurs de matériaux: //////////////////////////
@@ -406,100 +433,9 @@ void dessinerCarte(void)
     glUniform3f(handle, -1.0f, 1.0f, 0.0f);
 
     err = glGetError();
-    cartePoly->dessiner();
+    cartePoly->dessiner(CVar::diffTex);
     err = glGetError();
 }
-
-void dessinerGazon()
-{
-    progNuanceurGazon.activer();
-    // Création d'une matrice-modèle.
-    glm::vec3 t1(-3.5f, -1.5f, 0.f);
-    glm::mat4 translationMatrix1 = glm::translate(t1);
-
-    glm::vec3 s(CCst::largeurGazon, CCst::longueurGazon, CCst::hauteurGazon);
-    glm::mat4 scalingMatrix = glm::scale(s);
-
-    glm::mat4 rotationMatrix;
-
-    glm::vec3 rotationAxis(1.0f, 0.0f, 0.0f);
-    float     a    = glm::radians(-90.0f);
-    rotationMatrix = glm::rotate(a, rotationAxis);
-
-    glm::vec3 t2(0.f, -20.f, 0.f);
-    glm::mat4 translationMatrix2 = glm::translate(t2);
-
-    glm::mat4 modelMatrix = translationMatrix2 * rotationMatrix * scalingMatrix * translationMatrix1;
-
-    // Matrice Model-Vue-Projection:
-    glm::mat4 mv = CVar::vue * modelMatrix;
-
-    // Matrice Model-Vue-Projection:
-    glm::mat4 mvp = CVar::projection * CVar::vue * modelMatrix;
-
-    // Matrice pour normales (world matrix):
-    glm::mat3 mv_n = glm::inverseTranspose(glm::mat3(CVar::vue * modelMatrix));
-    GLuint    handle;
-
-    handle = glGetUniformLocation(progNuanceurGazon.getProg(), "M");
-    glUniformMatrix4fv(handle, 1, GL_FALSE, &modelMatrix[0][0]);
-
-    handle = glGetUniformLocation(progNuanceurGazon.getProg(), "V");
-    glUniformMatrix4fv(handle, 1, GL_FALSE, &CVar::vue[0][0]);
-
-    handle = glGetUniformLocation(progNuanceurGazon.getProg(), "MVP");
-    glUniformMatrix4fv(handle, 1, GL_FALSE, &mvp[0][0]);
-
-    handle = glGetUniformLocation(progNuanceurGazon.getProg(), "MV");
-    glUniformMatrix4fv(handle, 1, GL_FALSE, &mv[0][0]);
-
-    handle = glGetUniformLocation(progNuanceurGazon.getProg(), "MV_N");
-    glUniformMatrix3fv(handle, 1, GL_FALSE, &mv_n[0][0]);
-
-    ////////////////    Fournir les valeurs de matériaux: //////////////////////////
-    GLfloat component[4];
-    handle = glGetUniformLocation(progNuanceurGazon.getProg(), "Material.Ambient");
-    nurbs_mat_ambiant_model.obtenirKA(component);
-    glUniform4fv(handle, 1, component);
-
-    handle = glGetUniformLocation(progNuanceurGazon.getProg(), "Material.Diffuse");
-    nurbs_mat_ambiant_model.obtenirKD(component);
-    glUniform4fv(handle, 1, component);
-
-    handle = glGetUniformLocation(progNuanceurGazon.getProg(), "Material.Specular");
-    nurbs_mat_ambiant_model.obtenirKS(component);
-    glUniform4fv(handle, 1, component);
-
-    handle = glGetUniformLocation(progNuanceurGazon.getProg(), "Material.Exponent");
-    nurbs_mat_ambiant_model.obtenirKE(component);
-    glUniform4fv(handle, 1, component);
-
-    handle = glGetUniformLocation(progNuanceurGazon.getProg(), "Material.Shininess");
-    glUniform1f(handle, nurbs_mat_ambiant_model.obtenirShininess());
-
-    ///////////////////////////////////////////////////////////////////////////////////
-
-    attribuerValeursLumieres(progNuanceurGazon.getProg());
-
-    // ajouts d'autres uniforms
-    if (CVar::lumieres[ENUM_LUM::LumPonctuelle]->estAllumee())
-        progNuanceurGazon.uniform1("pointLightOn", 1);
-    else
-        progNuanceurGazon.uniform1("pointLightOn", 0);
-
-    if (CVar::lumieres[ENUM_LUM::LumDirectionnelle]->estAllumee())
-        progNuanceurGazon.uniform1("dirLightOn", 1);
-    else
-        progNuanceurGazon.uniform1("dirLightOn", 0);
-
-    if (CVar::lumieres[ENUM_LUM::LumSpot]->estAllumee())
-        progNuanceurGazon.uniform1("spotLightOn", 1);
-    else
-        progNuanceurGazon.uniform1("spotLightOn", 0);
-
-    gazon->dessiner();
-}
-
 void dessinerSkybox()
 {
     // Ajouter une modification dans la matrice Modèle pour éliminer les artéfacts de perspectives.
@@ -530,16 +466,138 @@ void dessinerSkybox()
     skybox->dessiner();
 }
 
+void dessinerMasque(void)
+{
+	GLenum err = 0;
+	progNuanceurCarte.activer();
+	// Création d'une matrice-modèle.
+	// Défini la translation/rotaion/grandeur du modèle.
+	float     scale = cartePoly->obtenirEchelle();
+	glm::vec3 s(1, 1, 1);
+	glm::mat4 scalingMatrix = glm::scale(s);
+
+	glm::mat4 rotationMatrix;
+
+	glm::vec3 rotationAxis = glm::vec3(0.0f, 0.0f, 1.0f);
+	float     a = glm::radians(180.f);
+	rotationMatrix *= glm::rotate(a, rotationAxis);
+
+	if (CVar::isRotating)
+	{
+		a = CVar::temps;
+		rotationAxis = glm::vec3(0.f, 1.0f, 0.f);
+		rotationMatrix *= glm::rotate(a, rotationAxis);
+	}
+
+	glm::vec3 t(0.f, 0.f, -10.f);
+	glm::mat4 translationMatrix = glm::translate(t);
+
+	glm::mat4 modelMatrix = translationMatrix * rotationMatrix * scalingMatrix;
+
+	// Matrice Model-Vue-Projection:
+	glm::mat4 mv = CVar::vue * modelMatrix;
+
+	// Matrice Model-Vue-Projection:
+	glm::mat4 mvp = CVar::projection * CVar::vue * modelMatrix;
+
+	// Matrice pour normales (world matrix):
+	glm::mat3 mv_n = glm::inverseTranspose(glm::mat3(CVar::vue * modelMatrix));
+	err = glGetError();
+	GLuint handle;
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "M");
+	glUniformMatrix4fv(handle, 1, GL_FALSE, &modelMatrix[0][0]);
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "V");
+	glUniformMatrix4fv(handle, 1, GL_FALSE, &CVar::vue[0][0]);
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "MVP");
+	glUniformMatrix4fv(handle, 1, GL_FALSE, &mvp[0][0]);
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "MV");
+	glUniformMatrix4fv(handle, 1, GL_FALSE, &mv[0][0]);
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "MV_N");
+	glUniformMatrix3fv(handle, 1, GL_FALSE, &mv_n[0][0]);
+
+	////////////////    Fournir les valeurs de matériaux: //////////////////////////
+	GLfloat component[4];
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "frontMat.Ambient");
+	front_mat_ambiant_model.obtenirKA(component);
+	glUniform4fv(handle, 1, component);
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "frontMat.Diffuse");
+	front_mat_ambiant_model.obtenirKD(component);
+	glUniform4fv(handle, 1, component);
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "frontMat.Specular");
+	front_mat_ambiant_model.obtenirKS(component);
+	glUniform4fv(handle, 1, component);
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "frontMat.Exponent");
+	front_mat_ambiant_model.obtenirKE(component);
+	glUniform4fv(handle, 1, component);
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "frontMat.Shininess");
+	glUniform1f(handle, front_mat_ambiant_model.obtenirShininess());
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "backMat.Ambient");
+	back_mat_ambiant_model.obtenirKA(component);
+	glUniform4fv(handle, 1, component);
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "backMat.Diffuse");
+	back_mat_ambiant_model.obtenirKD(component);
+	glUniform4fv(handle, 1, component);
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "backMat.Specular");
+	back_mat_ambiant_model.obtenirKS(component);
+	glUniform4fv(handle, 1, component);
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "backMat.Exponent");
+	back_mat_ambiant_model.obtenirKE(component);
+	glUniform4fv(handle, 1, component);
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "backMat.Shininess");
+	glUniform1f(handle, back_mat_ambiant_model.obtenirShininess());
+
+	/////////////////////////////////////////////////////////////////////////////////////
+
+	attribuerValeursLumieres(progNuanceurCarte.getProg());
+	err = glGetError();
+	// ajouts d'autres uniforms
+	if (CVar::lumieres[ENUM_LUM::LumPonctuelle]->estAllumee())
+		progNuanceurCarte.uniform1("pointLightOn", 1);
+	else
+		progNuanceurCarte.uniform1("pointLightOn", 0);
+
+	if (CVar::lumieres[ENUM_LUM::LumDirectionnelle]->estAllumee())
+		progNuanceurCarte.uniform1("dirLightOn", 1);
+	else
+		progNuanceurCarte.uniform1("dirLightOn", 0);
+
+	if (CVar::lumieres[ENUM_LUM::LumSpot]->estAllumee())
+		progNuanceurCarte.uniform1("spotLightOn", 1);
+	else
+		progNuanceurCarte.uniform1("spotLightOn", 0);
+	err = glGetError();
+
+	handle = glGetUniformLocation(progNuanceurCarte.getProg(), "Tangent");
+	glUniform3f(handle, -1.0f, 1.0f, 0.0f);
+
+	err = glGetError();
+	cartePoly->dessiner(CVar::maskTex);
+	err = glGetError();
+}
+
 void dessinerScene()
 {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    dessinerSkybox();
-
-    dessinerGazon();
+    //dessinerSkybox();
 
     dessinerCarte();
-
+	if (maskOn)
+		dessinerMasque();
     // flush les derniers vertex du pipeline graphique
     glFlush();
 }
@@ -592,10 +650,10 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
     {
         if (action == GLFW_PRESS)
         {
-            if (CVar::isRotating)
-                CVar::isRotating = false;
+            if (rotating)
+                rotating = false;
             else
-                CVar::isRotating = true;
+                rotating = true;
         }
         break;
     }
@@ -610,28 +668,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
         }
         break;
     }
-    case GLFW_KEY_E:
-    {
-        if (action == GLFW_PRESS)
-        {
-            if (CVar::animModeleOn)
-                CVar::animModeleOn = false;
-            else
-                CVar::animModeleOn = true;
-        }
-        break;
-    }
-    case GLFW_KEY_X:
-    {
-        if (action == GLFW_PRESS)
-        {
-            if (CVar::perlinOn)
-                CVar::perlinOn = false;
-            else
-                CVar::perlinOn = true;
-        }
-        break;
-    }
+
     case GLFW_KEY_C:
     {
         if (action == GLFW_PRESS)
@@ -710,6 +747,91 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
         }
         break;
     }
+
+	// move laser
+	case GLFW_KEY_UP:
+	{
+		if (action == GLFW_PRESS | GLFW_REPEAT)
+		{
+			if (rotating)
+				laser0.turn(0.001,0 , 0);
+			else
+				laser0.move(-0.2, 0, 0);
+		}
+		break;
+	}
+
+	// move laser
+	case GLFW_KEY_DOWN:
+	{
+		if (action == GLFW_PRESS | GLFW_REPEAT)
+		{
+			if (rotating)
+				laser0.turn(-0.001,0 , 0);
+			else
+				laser0.move(0.2, 0, 0);
+		}
+		break;
+	}
+
+	// move laser
+	case GLFW_KEY_RIGHT:
+	{
+		if (action == GLFW_PRESS | GLFW_REPEAT)
+		{
+			if (rotating)
+				laser0.turn(0, 0.001, 0);
+			else
+				laser0.move(0, -0.2, 0);
+		}
+		break;
+	}
+
+	// move laser
+	case GLFW_KEY_LEFT:
+	{
+		if (action == GLFW_PRESS | GLFW_REPEAT)
+		{
+			if (rotating)
+				laser0.turn(0,-0.001, 0);
+			else
+				laser0.move(0, 0.2, 0);
+		}
+		break;
+	}
+
+	//display mask
+	case GLFW_KEY_E:
+	{
+		if (action == GLFW_PRESS)
+		{
+			if (maskOn)
+				maskOn=false;
+			else
+				maskOn=true;
+		}
+		break;
+	}
+
+	//change wave length
+	case GLFW_KEY_KP_ADD:
+	{
+		if (action == GLFW_PRESS | GLFW_REPEAT)
+		{
+			laser0.changeWL(0.1);
+		}
+		break;
+	}
+
+	//change wave length
+	case GLFW_KEY_KP_SUBTRACT	:
+	{
+		if (action == GLFW_PRESS | GLFW_REPEAT)
+		{
+			laser0.changeWL(-0.1);
+		}
+		break;
+	}
     }
 }
 
@@ -934,34 +1056,112 @@ void compilerNuanceurs()
     progNuanceurSkybox.compilerEtLier();
     progNuanceurSkybox.enregistrerUniformInteger("colorMap", CCst::texUnit_0);
 
-    progNuanceurGazon.compilerEtLier();
-    progNuanceurGazon.enregistrerUniformInteger("colorMap", CCst::texUnit_0);
 }
 
-void chargerBruitPerlin()
+
+void initDiffraction(void) {
+	for (int i = 0; i < resX*resY; i++) {
+		texDiffColor[i * 4 + 1] = 0.0;
+		texDiffColor[i * 4 + 2] = 0.0;
+		texDiffColor[i * 4] = 0.0;
+		texDiffColor[i * 4 + 3] = 0.0;
+		
+		texMaskColor[i * 4 + 1] = 0.0;
+		texMaskColor[i * 4 + 2] = 0.0;
+		texMaskColor[i * 4] = 0.0;
+		texMaskColor[i * 4 + 3] = 0.0;
+		mask[i] = 0.0;
+	}
+	for (int i = 0; i < resY; i++) {
+		mask[(3 * resX / 4) + i * resX ] = 1.0;
+		mask[(resX / 4) + i * resX ] = 1.0;
+	}
+
+	//mask[resX / 2 + resX * resY / 2] = 1.0;
+	laser0 = CLaser(0, 0, 1, 0, 0, 1, 0.2,0.02);
+
+}
+
+void updateLaser() {
+
+	glGenTextures(1, &CVar::maskTex);
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, CVar::maskTex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, resX, resY, 0, GL_RGBA, GL_FLOAT, texMaskColor);
+	/*
+	double current_time = glfwGetTime();
+	if (current_time - previous_time > .1) {
+		laser0.move(0, .3, 0);
+		laser0.turn(-0.01,0 , 0);
+
+		previous_time = current_time;
+
+	}*/
+	
+}
+void laserIntersect(CLaser laser) {
+	GLfloat cosAngle = laser.getCosAngle();
+	waveLen = laser.getWL();
+	GLfloat position[3];
+	laser.getPos(position);
+	GLfloat direction[3];
+	laser.getDir(direction);
+	REAL cos2;
+	CVecteur3 vec;
+	for (int i = 0; i < resX; i++) {
+		for (int j = 0; j < resX; j++) {
+			vec = CVecteur3::Normaliser(CVecteur3(position[0] + i - resX / 2, position[1] + j - resY / 2, position[2]));
+			
+			cos2 = CVecteur3::ProdScal(vec, CVecteur3::Normaliser(CVecteur3(direction[0], direction[1], direction[2])));
+			texMaskColor[i*resX * 4 + j * 4 + 1] = mask[i*resX + j];
+			if (cos2 > cosAngle) {
+				texDiffColor[i*resX * 4 + j * 4 + 1] = mask[i*resX + j];
+				texMaskColor[i*resX * 4 + j * 4 ] = 1.0;
+			}
+			else {
+				texDiffColor[i*resX * 4 + j * 4 + 1] = 0;
+				texMaskColor[i*resX * 4 + j * 4] = 0;
+				texMaskColor[i*resX * 4 + j * 4 + 1] = 0;
+			}
+		}
+	}
+}
+
+
+void calculDiffraction()
 {
     // construire la texture
-    // calculer la texture de bruit de Perlin
-    float* texNoise2D = make2DNoiseArray(CCst::noiseWidth, CCst::noiseHeight, 32, 1);
+    // calculer la texture de la figure de diffraction
+    
 
-    // calculer la "normal map"
-    vect3D* texNormal2D = compute2DNormalTexture(texNoise2D, CCst::noiseWidth, CCst::noiseHeight);
+	float distance = 400.0;
+	float dir[3];
+	laser0.getDir(dir);
+	
+	glGenTextures(1, &CVar::diffTex);
 
-    // créer la texture
-    glGenTextures(1, &CVar::perlinTex);
-    glBindTexture(GL_TEXTURE_2D, CVar::perlinTex);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, CVar::diffTex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    // aiguiller openGL vers la zone mémoire contenant le graphisme de la texture
-    glTexImage2D(GL_TEXTURE_2D, 0, 3, CCst::noiseWidth, CCst::noiseHeight, 0, GL_RGB, GL_FLOAT, texNormal2D);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, resX, resY, 0, GL_RGBA, GL_FLOAT, texDiffColor);
 
-    // libérer l'espace mémoire maintenant que la texture est copiée dans la mémoire vidéo
-    if (texNoise2D)
-    {
-        free(texNoise2D);
-    }
+	glBindImageTexture(0, CVar::diffTex, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
 
-    if (texNormal2D)
-    {
-        free(texNormal2D);
-    }
+	glUseProgram(computeHandle);
+	glUniform1f(glGetUniformLocation(computeHandle, "resX"), resX);
+	glUniform1f(glGetUniformLocation(computeHandle, "resY"), resY);
+	glUniform1f(glGetUniformLocation(computeHandle, "wavelen"), waveLen);
+	glUniform1f(glGetUniformLocation(computeHandle, "distance"), distance);
+	glUniform1f(glGetUniformLocation(computeHandle, "dirx"), dir[0]);
+	glUniform1f(glGetUniformLocation(computeHandle, "diry"), dir[1]);
+	glUniform1f(glGetUniformLocation(computeHandle, "dirz"), dir[2]);
+	glDispatchCompute(resX /16, resY /16, 1); // blocks of 16^2
+
+	glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 }

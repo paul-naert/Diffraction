@@ -44,7 +44,7 @@ public:
     ~CModele3DOBJ(void) override;
     /// Fonction compatible avec opengl4 qui affiche le modèle 3D à partir des tableaux de sommets lus dans le fichier
     /// source OBJ.
-    void dessiner() override;
+    void dessiner();
     /// fonction qui charge en mémoire les sommets et les normales d'un modèle définit dans un fichier .OBJ.
     void chargerModeleOBJ(char* fichierOBJ);
     /// fonction à implémenter pour personnaliser l'application de texture (à faire aussi : dans le constructeur,

@@ -152,13 +152,13 @@ CGrilleQuads::~CGrilleQuads(void)
 //	appliquerBruitPerlin();
 //}
 
-void CGrilleQuads::dessiner()
+void CGrilleQuads::dessiner(GLuint tex)
 {
     glBindVertexArray(m_quads_vao);
     // if (isBumpy_){
-    appliquerBruitPerlin();
+    appliquerTexture(tex);
     //}
-    appliquerTextures();
+    //appliquerTextures();
 
     if (!m_sommets.empty())
     {
@@ -170,10 +170,10 @@ void CGrilleQuads::dessiner()
     }
 }
 
-void CGrilleQuads::appliquerBruitPerlin()
+void CGrilleQuads::appliquerTexture(GLuint tex)
 {
     glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, CVar::perlinTex);
+    glBindTexture(GL_TEXTURE_2D, tex);
     glEnable(GL_TEXTURE_2D);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);

@@ -42,11 +42,11 @@ public:
 
     /// fonction à implémenter pour définir la géométrie openGL de la carte d'identité de poly (est statique, car est
     /// référée par un pointeur de fonction)
-    void dessiner();
+    void dessiner(GLuint tex);
 
 private:
     /// fonction personnalisée qui applique le bruit de perlin
-    void appliquerBruitPerlin();
+    void appliquerTexture(GLuint tex);
 
     /// la largeur de la carte, en unités d'objet
     float largeur_;

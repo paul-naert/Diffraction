@@ -50,7 +50,7 @@ public:
 	/// ajoute une texture spécifique (préconstruite)au modèle
 	void ajouterTexture(CTextureAbstraite* texture);
 	/// doit etre implementé par les classes enfant pour afficher le modele
-	virtual void dessiner() = 0;
+	//virtual void dessiner() = 0;
 
 	//////////////////////////////////////////
 	// Les Accesseurs...                     /
