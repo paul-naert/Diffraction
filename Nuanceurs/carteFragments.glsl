@@ -39,7 +39,6 @@ out vec4 color;
 uniform int pointLightOn;
 uniform int dirLightOn;
 uniform int spotLightOn;
-uniform int perlinOn;
 uniform Light Lights[3];
 uniform Mat frontMat;
 uniform Mat backMat;
@@ -78,17 +77,13 @@ void main (void)
         matSpecular  = frontMat.Specular;
         matShininess = frontMat.Shininess;
 
-        // Échantillonnage du bruit de perlin
-		noise = texture2D(normalMap, fragTexCoord).xyz;
+        // Échantillonnage de la texture de diffraction
+		frontColor *= 0.8;
 
-        // Perturbation de la normale
-        
-        if (perlinOn == 1) {
-            normal = normalize(vec3(0.0, 0.0, 1.0)+normalize(noise));
-        } else {
-            
-			normal = vec3(0.0, 0.0, 1.0);
-        }
+		frontColor = texture2D(normalMap, fragTexCoord);
+         
+		normal = vec3(0.0, 0.0, 1.0);
+
        
         trueColor = frontColor;
     }
