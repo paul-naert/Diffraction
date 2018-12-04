@@ -17,6 +17,7 @@ public:
 	void move(GLfloat dx, GLfloat dy, GLfloat dz);
 	void turn(GLfloat dx, GLfloat dy, GLfloat dz);
 	void changeWL(GLfloat incr);
+	void changeCos(GLfloat incr);
 
 private:
 	GLfloat pos[3];

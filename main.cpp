@@ -74,13 +74,18 @@ float vitesseSouris = 0.05f;
 double sourisX = 0;
 double sourisY = 0;
 
+// resolution of the diffraction figure : more means more precise but longer calculations
 const int resX = 128;
 const int resY = 128;
+//Arrays corresponding to the textures of the diffraction figure and the mask
 float* texDiffColor = new float[resX * resY * 4];
 float* texMaskColor = new float[resX * resY * 4];
+//Array defining what part of the mask lets light through
 float* mask = new float[resX * resY];
-float waveLen = 1;
+// Previous time storage for laser animation and calculating fps
 double previous_time = 0;
+int nbFrames = 0;
+// Laser for diffraction
 CLaser laser0 ;
 //key controls
 bool rotating = false;
@@ -102,11 +107,18 @@ void mouvementSouris(GLFWwindow* window, double deltaT, glm::vec3& direction, gl
 void redimensionnement(GLFWwindow* fenetre, int w, int h);
 void rafraichirCamera(GLFWwindow* window, double deltaT);
 void compilerNuanceurs();
+// Diffraction functions
 void calculDiffraction();
 void laserIntersect(CLaser laser);
 void initDiffraction();
 void updateLaser();
+void setWindowFPS(GLFWwindow* fenetre);
 
+// Changing mask layout
+void setMask1();
+void setMask2();
+void setMask3();
+void setMask4();
 
 // le main
 int main(int argc, char* argv[])
@@ -201,7 +213,7 @@ int main(int argc, char* argv[])
     while (!glfwWindowShouldClose(fenetre))
     {
         glfwPollEvents();
-
+		setWindowFPS(fenetre);
         // Temps ecoule en secondes depuis l'initialisation de GLFW
         double temps  = glfwGetTime();
         double deltaT = temps - CVar::temps;
@@ -256,18 +268,18 @@ void initialisation(void)
 
     // LUMIÈRE PONCTUELLE ORKENTÉE (enum : LumPonctuelle - 0)
     CVar::lumieres[ENUM_LUM::LumPonctuelle] =
-        new CLumiere(0.1f, 0.1f, 0.1f, 0.4f, 0.4f, 0.9f, 0.7f, 0.7f, 0.7f, 0.0f, -3.0f, -10.0f, 1.0f, true);
+        new CLumiere(0.1f, 0.1f, 0.1f, 0.4f, 0.4f, 0.9f, 0.7f, 0.7f, 0.7f, 0.0f, -3.0f, -10.0f, 1.0f, false);
     CVar::lumieres[ENUM_LUM::LumPonctuelle]->modifierConstAtt(0.4);
     CVar::lumieres[ENUM_LUM::LumPonctuelle]->modifierLinAtt(0.0);
     CVar::lumieres[ENUM_LUM::LumPonctuelle]->modifierQuadAtt(0.0);
 
     // LUMIÈRE SPOT (enum : LumSpot - 1)
     CVar::lumieres[ENUM_LUM::LumSpot] = new CLumiere(0.2f, 0.2f, 0.2f, 0.9f, 0.8f, 0.4f, 1.0f, 1.0f, 1.0f, 10.0f, 10.0f,
-                                                     -10.0f, 1.0f, true, -0.5f, -1.0f, 1.0f, 0.f, 30.0);
+                                                     -10.0f, 1.0f, false, -0.5f, -1.0f, 1.0f, 0.f, 30.0);
 
     // LUMIÈRE DIRECTIONNELLE (enum : LumDirectionnelle - 2)
     CVar::lumieres[ENUM_LUM::LumDirectionnelle] =
-        new CLumiere(0.1f, 0.1f, 0.1f, 0.8f, 0.8f, 0.8f, 0.4f, 0.4f, 0.4f, 5.0f, -5.0f, 5.0f, 0.0f, true);
+        new CLumiere(0.1f, 0.1f, 0.1f, 0.8f, 0.8f, 0.8f, 0.4f, 0.4f, 0.4f, 5.0f, -5.0f, 5.0f, 0.0f, false);
 
     // les noms de fichier de la texture de la carte.
     std::vector<const char*> texturesCarte;
@@ -278,19 +290,11 @@ void initialisation(void)
 
 	calculDiffraction();
 
-    cartePoly = new CGrilleQuads(&texturesCarte, 20.f, 12.f, 25, 25, 1.0f, false, true);
-    // lier les attributs des nuanceurs
-    // glBindAttribLocation(progNuanceurCarte.getProg(), CCst::indexTangente, "Tangent");
-
+    cartePoly = new CGrilleQuads(&texturesCarte, 20.f, 20.f, 25, 25, 1.0f, false, true);
+ 
     // construire le skybox avec les textures
     skybox = new CSkybox("Textures/uffizi_cross_LDR.bmp", CCst::grandeurSkybox);
 
-    // Construire un plan pour le gazon
-    // gazon = new CGrilleQuads("textures/gazon.bmp", 2000.f, 500.f, 50, 50, 1.0f, true, false);
-    // gazon->modifierRepeatTexture(true);
-
-    // gazon->modifierEchelle(10.0f);
-    //gazon = new CGazon("Textures/gazon.bmp", 1.0f, 1.0f);
 
     // fixer la couleur de fond
     glClearColor(0.0, 0.0, 0.5, 1.0);
@@ -322,12 +326,6 @@ void dessinerCarte(void)
     float     a            = glm::radians(180.f);
     rotationMatrix *= glm::rotate(a, rotationAxis);
 
-    if (CVar::isRotating)
-    {
-        a            = CVar::temps;
-        rotationAxis = glm::vec3(0.f, 1.0f, 0.f);
-        rotationMatrix *= glm::rotate(a, rotationAxis);
-    }
 
     glm::vec3 t(0.f, 0.f, 0.f);
     glm::mat4 translationMatrix = glm::translate(t);
@@ -482,14 +480,8 @@ void dessinerMasque(void)
 	float     a = glm::radians(180.f);
 	rotationMatrix *= glm::rotate(a, rotationAxis);
 
-	if (CVar::isRotating)
-	{
-		a = CVar::temps;
-		rotationAxis = glm::vec3(0.f, 1.0f, 0.f);
-		rotationMatrix *= glm::rotate(a, rotationAxis);
-	}
 
-	glm::vec3 t(0.f, 0.f, -10.f);
+	glm::vec3 t(0.f, 0.f, -30.f);
 	glm::mat4 translationMatrix = glm::translate(t);
 
 	glm::mat4 modelMatrix = translationMatrix * rotationMatrix * scalingMatrix;
@@ -592,8 +584,6 @@ void dessinerMasque(void)
 void dessinerScene()
 {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    //dessinerSkybox();
 
     dessinerCarte();
 	if (maskOn)
@@ -751,7 +741,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 	// move laser
 	case GLFW_KEY_UP:
 	{
-		if (action == GLFW_PRESS | GLFW_REPEAT)
+		if (action == GLFW_PRESS || action == GLFW_REPEAT)
 		{
 			if (rotating)
 				laser0.turn(0.001,0 , 0);
@@ -764,7 +754,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 	// move laser
 	case GLFW_KEY_DOWN:
 	{
-		if (action == GLFW_PRESS | GLFW_REPEAT)
+		if (action == GLFW_PRESS || action == GLFW_REPEAT)
 		{
 			if (rotating)
 				laser0.turn(-0.001,0 , 0);
@@ -777,7 +767,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 	// move laser
 	case GLFW_KEY_RIGHT:
 	{
-		if (action == GLFW_PRESS | GLFW_REPEAT)
+		if (action == GLFW_PRESS || action == GLFW_REPEAT)
 		{
 			if (rotating)
 				laser0.turn(0, 0.001, 0);
@@ -790,7 +780,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 	// move laser
 	case GLFW_KEY_LEFT:
 	{
-		if (action == GLFW_PRESS | GLFW_REPEAT)
+		if (action == GLFW_PRESS || action == GLFW_REPEAT)
 		{
 			if (rotating)
 				laser0.turn(0,-0.001, 0);
@@ -816,9 +806,9 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 	//change wave length
 	case GLFW_KEY_KP_ADD:
 	{
-		if (action == GLFW_PRESS | GLFW_REPEAT)
+		if (action == GLFW_PRESS || action == GLFW_REPEAT)
 		{
-			laser0.changeWL(0.1);
+			laser0.changeWL(0.02);
 		}
 		break;
 	}
@@ -826,10 +816,52 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 	//change wave length
 	case GLFW_KEY_KP_SUBTRACT	:
 	{
-		if (action == GLFW_PRESS | GLFW_REPEAT)
+		if (action == GLFW_PRESS || action == GLFW_REPEAT)
 		{
-			laser0.changeWL(-0.1);
+			laser0.changeWL(-0.02);
 		}
+		break;
+	}
+	//change wave length
+	case GLFW_KEY_KP_MULTIPLY:
+	{
+		if (action == GLFW_PRESS || action == GLFW_REPEAT)
+		{
+			laser0.changeCos(.999);
+		}
+		break;
+	}
+	//change wave length
+	case GLFW_KEY_KP_DIVIDE:
+	{
+		if (action == GLFW_PRESS || action == GLFW_REPEAT)
+		{
+			laser0.changeCos(1/.999);
+		}
+		break;
+	}
+	//choose mask
+	case GLFW_KEY_KP_1:
+	{
+		setMask1();
+		break;
+	}
+	//choose mask
+	case GLFW_KEY_KP_2:
+	{
+		setMask2();
+		break;
+	}
+	//choose mask
+	case GLFW_KEY_KP_3:
+	{
+		setMask3();
+		break;
+	}
+	//choose mask
+	case GLFW_KEY_KP_4:
+	{
+		setMask4();
 		break;
 	}
     }
@@ -1072,14 +1104,119 @@ void initDiffraction(void) {
 		texMaskColor[i * 4 + 3] = 0.0;
 		mask[i] = 0.0;
 	}
-	for (int i = 0; i < resY; i++) {
-		mask[(3 * resX / 4) + i * resX ] = 1.0;
-		mask[(resX / 4) + i * resX ] = 1.0;
+	//mask definition : here two points
+	for (int i = resY/2; i < resY/2+1; i++) {
+		mask[(11 * resX / 21) + i * resX ] = 1.0;
+		mask[(10* resX / 21) + i * resX ] = 1.0;
+	}
+	// mask definition : here a square
+	//for (int j = 2 * resY / 5; j < 3 * resY / 5; j++) {
+	//	for (int i = 2*resX/5; i < 3 * resX / 5; i++) {
+	//		mask[ j *resX + i] = 1.0;
+	//	}
+	//}
+
+	//here two circles
+	//for (int j = 0; j <  resY ; j++) {
+	//	for (int i = 0; i < resX; i++) {
+	//		int j2 = j - resY / 2;
+	//		int i2 = i - 2*resX / 5;
+	//		int i3 = i - 3*resX / 5;
+	//		if(sqrt(i2*i2+j2*j2)<6 || sqrt(i3*i3 + j2 * j2) < 6)
+	//			mask[ j *resX + i] = 1.0;
+	//	}
+	//}
+	// here we define the laser caracteristics : position, angle, wavelength and cosine of aperture angle
+	laser0 = CLaser(0, 0, 100, 0, 0, 1, 0.2,0.9);
+
+}
+
+void setMask1(void) {
+	for (int i = 0; i < resX*resY; i++) {
+		texDiffColor[i * 4 + 1] = 0.0;
+		texDiffColor[i * 4 + 2] = 0.0;
+		texDiffColor[i * 4] = 0.0;
+		texDiffColor[i * 4 + 3] = 0.0;
+
+		texMaskColor[i * 4 + 1] = 0.0;
+		texMaskColor[i * 4 + 2] = 0.0;
+		texMaskColor[i * 4] = 0.0;
+		texMaskColor[i * 4 + 3] = 0.0;
+		mask[i] = 0.0;
+	}
+	//mask definition : here two points
+	for (int i = resY/2; i < resY/2 +1 ; i++) {
+		mask[(11 * resX / 21) + i * resX] = 1.0;
+		mask[(10 * resX / 21) + i * resX] = 1.0;
 	}
 
-	//mask[resX / 2 + resX * resY / 2] = 1.0;
-	laser0 = CLaser(0, 0, 1, 0, 0, 1, 0.2,0.02);
+}
 
+void setMask2(void) {
+	for (int i = 0; i < resX*resY; i++) {
+		texDiffColor[i * 4 + 1] = 0.0;
+		texDiffColor[i * 4 + 2] = 0.0;
+		texDiffColor[i * 4] = 0.0;
+		texDiffColor[i * 4 + 3] = 0.0;
+
+		texMaskColor[i * 4 + 1] = 0.0;
+		texMaskColor[i * 4 + 2] = 0.0;
+		texMaskColor[i * 4] = 0.0;
+		texMaskColor[i * 4 + 3] = 0.0;
+		mask[i] = 0.0;
+	}
+	//mask definition : here two slits
+	for (int i = 0; i < resY; i++) {
+		mask[(11 * resX / 21) + i * resX] = 1.0;
+		mask[(10 * resX / 21) + i * resX] = 1.0;
+	}
+
+}
+void setMask3(void) {
+	for (int i = 0; i < resX*resY; i++) {
+		texDiffColor[i * 4 + 1] = 0.0;
+		texDiffColor[i * 4 + 2] = 0.0;
+		texDiffColor[i * 4] = 0.0;
+		texDiffColor[i * 4 + 3] = 0.0;
+
+		texMaskColor[i * 4 + 1] = 0.0;
+		texMaskColor[i * 4 + 2] = 0.0;
+		texMaskColor[i * 4] = 0.0;
+		texMaskColor[i * 4 + 3] = 0.0;
+		mask[i] = 0.0;
+	}
+	// mask definition : here a square
+	for (int j = 2 * resY / 5; j < 3 * resY / 5; j++) {
+		for (int i = 2*resX/5; i < 3 * resX / 5; i++) {
+			mask[ j *resX + i] = 1.0;
+		}
+	}
+
+}
+
+void setMask4(void) {
+	for (int i = 0; i < resX*resY; i++) {
+		texDiffColor[i * 4 + 1] = 0.0;
+		texDiffColor[i * 4 + 2] = 0.0;
+		texDiffColor[i * 4] = 0.0;
+		texDiffColor[i * 4 + 3] = 0.0;
+
+		texMaskColor[i * 4 + 1] = 0.0;
+		texMaskColor[i * 4 + 2] = 0.0;
+		texMaskColor[i * 4] = 0.0;
+		texMaskColor[i * 4 + 3] = 0.0;
+		mask[i] = 0.0;
+	}
+	//here two circles
+	for (int j = 0; j <  resY ; j++) {
+		for (int i = 0; i < resX; i++) {
+			int j2 = j - resY / 2;
+			int i2 = i - 2*resX / 5;
+			int i3 = i - 3*resX / 5;
+			if(sqrt(i2*i2+j2*j2)<6 || sqrt(i3*i3 + j2 * j2) < 6)
+				mask[ j *resX + i] = 1.0;
+		}
+	}
 }
 
 void updateLaser() {
@@ -1092,6 +1229,8 @@ void updateLaser() {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, resX, resY, 0, GL_RGBA, GL_FLOAT, texMaskColor);
+	//laser animation is possible 
+	//Change variable name if used with the FPS counter 
 	/*
 	double current_time = glfwGetTime();
 	if (current_time - previous_time > .1) {
@@ -1105,16 +1244,15 @@ void updateLaser() {
 }
 void laserIntersect(CLaser laser) {
 	GLfloat cosAngle = laser.getCosAngle();
-	waveLen = laser.getWL();
 	GLfloat position[3];
 	laser.getPos(position);
 	GLfloat direction[3];
 	laser.getDir(direction);
 	REAL cos2;
 	CVecteur3 vec;
-	for (int i = 0; i < resX; i++) {
+	for (int i = 0; i < resY; i++) {
 		for (int j = 0; j < resX; j++) {
-			vec = CVecteur3::Normaliser(CVecteur3(position[0] + i - resX / 2, position[1] + j - resY / 2, position[2]));
+			vec = CVecteur3::Normaliser(CVecteur3(position[0] + i - resY / 2, position[1] + j - resX / 2, position[2]));
 			
 			cos2 = CVecteur3::ProdScal(vec, CVecteur3::Normaliser(CVecteur3(direction[0], direction[1], direction[2])));
 			texMaskColor[i*resX * 4 + j * 4 + 1] = mask[i*resX + j];
@@ -1125,7 +1263,6 @@ void laserIntersect(CLaser laser) {
 			else {
 				texDiffColor[i*resX * 4 + j * 4 + 1] = 0;
 				texMaskColor[i*resX * 4 + j * 4] = 0;
-				texMaskColor[i*resX * 4 + j * 4 + 1] = 0;
 			}
 		}
 	}
@@ -1136,10 +1273,10 @@ void calculDiffraction()
 {
     // construire la texture
     // calculer la texture de la figure de diffraction
-    
 
 	float distance = 400.0;
 	float dir[3];
+	float waveLen = laser0.getWL();
 	laser0.getDir(dir);
 	
 	glGenTextures(1, &CVar::diffTex);
@@ -1151,8 +1288,6 @@ void calculDiffraction()
 
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, resX, resY, 0, GL_RGBA, GL_FLOAT, texDiffColor);
 
-	// Because we're also using this tex as an image (in order to write to it),
-	// we bind it to an image unit as well
 	glBindImageTexture(0, CVar::diffTex, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
 
 	glUseProgram(computeHandle);
@@ -1166,4 +1301,26 @@ void calculDiffraction()
 	glDispatchCompute(resX /16, resY /16, 1); // blocks of 16^2
 
 	glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+}
+
+void
+setWindowFPS(GLFWwindow* fen)
+{
+	// Measure speed
+	double currentTime = glfwGetTime();
+	nbFrames++;
+
+	if (currentTime - previous_time >= 0.5) { // If last cout was more than .5 sec ago
+		previous_time = currentTime;
+		char title[256];
+		title[255] = '\0';
+
+		snprintf(title, 255,
+			"Diffraction wavelen %2.2f - [FPS: %d]" ,
+			laser0.getWL(), nbFrames*2);
+
+		glfwSetWindowTitle(fen, title);
+
+		nbFrames = 0;
+	}
 }

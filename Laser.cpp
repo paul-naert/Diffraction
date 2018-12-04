@@ -50,3 +50,7 @@ void CLaser::changeWL(GLfloat incr) {
 	}
 }
 
+void CLaser::changeCos(GLfloat factor) {
+	cosAngle *= factor;
+}
+
