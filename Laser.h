@@ -19,6 +19,7 @@ public:
 	void changeWL(GLfloat incr);
 	void changeCos(GLfloat incr);
 
+
 private:
 	GLfloat pos[3];
 	GLfloat dir[3];
