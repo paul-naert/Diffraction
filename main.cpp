@@ -75,8 +75,8 @@ double sourisX = 0;
 double sourisY = 0;
 
 // resolution of the diffraction figure : more means more precise but longer calculations
-const int resX = 128;
-const int resY = 128;
+const int resX = 256;
+const int resY = 256;
 //Arrays corresponding to the textures of the diffraction figure and the mask
 float* texDiffColor = new float[resX * resY * 4];
 float* texMaskColor = new float[resX * resY * 4];
@@ -91,6 +91,12 @@ CLaser laser0 ;
 bool rotating = false;
 // display mask
 bool maskOn = false;
+//distance entre masque et écran
+float screenDistance = 400.0;
+double time_update;
+// maximum updates per second
+const float updateCap = 24;
+
 
 
 ///////////////////////////////////////////////
@@ -307,11 +313,7 @@ void initialisation(void)
 }
 
 void dessinerCarte(void)
-{
-	updateLaser();
-	laserIntersect(laser0);
-	calculDiffraction();
-
+{	
     GLenum err = 0;
     progNuanceurCarte.activer();
     // Création d'une matrice-modèle.
@@ -636,6 +638,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
         }
         break;
     }
+	// switch to laser rotation mode
     case GLFW_KEY_R:
     {
         if (action == GLFW_PRESS)
@@ -748,6 +751,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 			else
 				laser0.move(-0.2, 0, 0);
 		}
+		calculDiffraction();
 		break;
 	}
 
@@ -761,6 +765,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 			else
 				laser0.move(0.2, 0, 0);
 		}
+		calculDiffraction();
 		break;
 	}
 
@@ -774,6 +779,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 			else
 				laser0.move(0, -0.2, 0);
 		}
+		calculDiffraction();
 		break;
 	}
 
@@ -787,6 +793,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 			else
 				laser0.move(0, 0.2, 0);
 		}
+		calculDiffraction();
 		break;
 	}
 
@@ -800,6 +807,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 			else
 				maskOn=true;
 		}
+		calculDiffraction();
 		break;
 	}
 
@@ -810,6 +818,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 		{
 			laser0.changeWL(0.02);
 		}
+		calculDiffraction();
 		break;
 	}
 
@@ -820,6 +829,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 		{
 			laser0.changeWL(-0.02);
 		}
+		calculDiffraction();
 		break;
 	}
 	//change wave length
@@ -829,6 +839,7 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 		{
 			laser0.changeCos(.999);
 		}
+		calculDiffraction();
 		break;
 	}
 	//change wave length
@@ -838,30 +849,35 @@ void clavier(GLFWwindow* fenetre, int touche, int scancode, int action, int mods
 		{
 			laser0.changeCos(1/.999);
 		}
+		calculDiffraction();
 		break;
 	}
 	//choose mask
 	case GLFW_KEY_KP_1:
 	{
 		setMask1();
+		calculDiffraction();
 		break;
 	}
 	//choose mask
 	case GLFW_KEY_KP_2:
 	{
 		setMask2();
+		calculDiffraction();
 		break;
 	}
 	//choose mask
 	case GLFW_KEY_KP_3:
 	{
 		setMask3();
+		calculDiffraction();
 		break;
 	}
 	//choose mask
 	case GLFW_KEY_KP_4:
 	{
 		setMask4();
+		calculDiffraction();
 		break;
 	}
     }
@@ -1270,11 +1286,16 @@ void laserIntersect(CLaser laser) {
 
 
 void calculDiffraction()
-{
+{	
+	//We avoid calculating too frequently when keys are pressed continuously
+	if (glfwGetTime() - time_update < 1 / updateCap) return;
+	time_update = glfwGetTime();
+
+	updateLaser();
+	laserIntersect(laser0);
     // construire la texture
     // calculer la texture de la figure de diffraction
 
-	float distance = 400.0;
 	float dir[3];
 	float waveLen = laser0.getWL();
 	laser0.getDir(dir);
@@ -1294,7 +1315,7 @@ void calculDiffraction()
 	glUniform1f(glGetUniformLocation(computeHandle, "resX"), resX);
 	glUniform1f(glGetUniformLocation(computeHandle, "resY"), resY);
 	glUniform1f(glGetUniformLocation(computeHandle, "wavelen"), waveLen);
-	glUniform1f(glGetUniformLocation(computeHandle, "distance"), distance);
+	glUniform1f(glGetUniformLocation(computeHandle, "distance"), screenDistance);
 	glUniform1f(glGetUniformLocation(computeHandle, "dirx"), dir[0]);
 	glUniform1f(glGetUniformLocation(computeHandle, "diry"), dir[1]);
 	glUniform1f(glGetUniformLocation(computeHandle, "dirz"), dir[2]);

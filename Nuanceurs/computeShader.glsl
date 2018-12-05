@@ -1,9 +1,10 @@
 #version 430
 layout(local_size_x = 16, local_size_y = 16) in;
 
-const int resX = 256;
-const int resY = 256;
+
 const float PI = 3.14159;
+const int resX = 200;
+const int resY = 200;
 uniform float wavelen;
 uniform float distance;
 uniform float dirx;
