@@ -6,10 +6,10 @@ The code basis for this project is TP2.
 ## My additions to the code
 
 ### Laser Class
-In files [laser.cpp](laser.cpp) and [laser.h](laser.h), I define a new class Laser with characteristics such as position, direction, wavelength and aperture.
+In files [Laser.cpp](Laser.cpp) and [Laser.h](Laser.h), I define a new class Laser with characteristics such as position, direction, wavelength and aperture.
 
 ### Compute Shader
-[computeShader.glsl](computeShader.glsl) is a shader I wrote to calculate the intensity of light at a given point on the screen. It adds the contributions of all the points on the mask (green component of the input/output texture) and calculates the norm.
+[computeShader.glsl](Nuanceurs/computeShader.glsl) is a shader I wrote to calculate the intensity of light at a given point on the screen. It adds the contributions of all the points on the mask (green component of the input/output texture) and calculates the norm.
 [compute.cpp](compute.cpp) contains just one function which does the compiling of the shader. I adapted code found on   http://wili.cc/blog/opengl-cs.html.
 
 ### Main
